@@ -8,7 +8,7 @@
 #define MAX_KEY_LEN 50
 #define MAX_VALUE_LEN 200
 
-#define MAX_ENTRIES 100
+#define MAX_ENTRIES 20
 #define STATE_EMPTY 0
 #define STATE_FILLED 1
 #define STATE_DELETED 2
@@ -26,6 +26,9 @@ typedef struct
 {
     KeyValuePair entries[MAX_ENTRIES];
     int count;
+    int totalCollisions; // Total times we had to probe
+    int totalOperations; // Total get/put/delete operations
+    int maxProbeLength;
 } KeyValueStore;
 
 // Function prototypes
@@ -36,11 +39,16 @@ int delete(KeyValueStore *store, char *key);
 void list_all(KeyValueStore *store);
 void print_menu();
 unsigned int hash(const char *key);
+void update_max_probe_length(KeyValueStore *store, int index);
+void print_stats(KeyValueStore *store);
 
 // Initialize the store (set all slots to empty, count to 0)
 void init_store(KeyValueStore *store)
 {
     store->count = 0;
+    store->totalCollisions = 0;
+    store->totalOperations = 0;
+    store->maxProbeLength = 0;
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
@@ -51,6 +59,7 @@ void init_store(KeyValueStore *store)
 // Insert or update a key-value pair
 int put(KeyValueStore *store, const char *key, const char *value)
 {
+    ++store->totalOperations;
 
     if (strnlen(key, MAX_KEY_LEN) > MAX_KEY_LEN)
     {
@@ -68,7 +77,9 @@ int put(KeyValueStore *store, const char *key, const char *value)
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
-        int currentIndex = (keyIndex + i) % MAX_ENTRIES;
+        update_max_probe_length(store, i);
+
+        unsigned currentIndex = (keyIndex + i) % MAX_ENTRIES;
 
         KeyValuePair *currEntry = &store->entries[currentIndex];
 
@@ -95,11 +106,15 @@ int put(KeyValueStore *store, const char *key, const char *value)
 // Retrieve value for a given key
 char *get(KeyValueStore *store, char *key)
 {
+    ++store->totalOperations;
+
     unsigned int keyIndex = hash(key);
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
-        int currentIndex = (keyIndex + i) % MAX_ENTRIES;
+        update_max_probe_length(store, i);
+
+        unsigned int currentIndex = (keyIndex + i) % MAX_ENTRIES;
 
         KeyValuePair *currEntry = &store->entries[currentIndex];
 
@@ -120,11 +135,15 @@ char *get(KeyValueStore *store, char *key)
 // Delete a key-value pair
 int delete(KeyValueStore *store, char *key)
 {
+    ++store->totalOperations;
+
     unsigned int keyIndex = hash(key);
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
-        int currentIndex = (keyIndex + i) % MAX_ENTRIES;
+        update_max_probe_length(store, i);
+
+        unsigned int currentIndex = (keyIndex + i) % MAX_ENTRIES;
 
         KeyValuePair *currEntry = &store->entries[currentIndex];
 
@@ -170,7 +189,8 @@ void print_menu()
     printf("(2) PUT key value\n");
     printf("(3) DELETE key\n");
     printf("(4) LIST\n");
-    printf("(5) QUIT\n");
+    printf("(5) STATS\n");
+    printf("(6) QUIT\n");
 }
 
 int is_command(const char *command, const char values[2][MAX_CMD_LEN + 1])
@@ -191,6 +211,41 @@ unsigned int hash(const char *key)
     return hashValue % MAX_ENTRIES;
 }
 
+void update_max_probe_length(KeyValueStore *store, int index)
+{
+    if (index <= 0)
+    {
+        return;
+    }
+
+    ++store->totalCollisions;
+
+    if (index <= store->maxProbeLength)
+    {
+        return;
+    }
+
+    store->maxProbeLength = index;
+}
+
+void print_stats(KeyValueStore *store)
+{
+    if (0 == store->totalOperations)
+    {
+        printf("No operations yet\n");
+        return;
+    }
+
+    float usage = (float)store->count / MAX_ENTRIES * 100;
+    float avarageProbs = (float)store->totalCollisions / (float)store->totalOperations;
+
+    printf("Usage: %.0f%%\n", usage);
+    printf("Average Probes: %.2f\n", avarageProbs);
+    printf("Total Operations: %d\n", store->totalOperations);
+    printf("Total Collisions: %d\n", store->totalCollisions);
+    printf("Max Probe Length: %d\n", store->maxProbeLength);
+}
+
 int main()
 {
     KeyValueStore store;
@@ -203,7 +258,8 @@ int main()
     const char PUT_ARGS[2][MAX_CMD_LEN + 1] = {"2", "PUT"};
     const char DEL_ARGS[2][MAX_CMD_LEN + 1] = {"3", "DELETE"};
     const char LIST_ARGS[2][MAX_CMD_LEN + 1] = {"4", "LIST"};
-    const char QUIT_ARGS[2][MAX_CMD_LEN + 1] = {"5", "QUIT"};
+    const char STATS_ARGS[2][MAX_CMD_LEN + 1] = {"5", "STATS"};
+    const char QUIT_ARGS[2][MAX_CMD_LEN + 1] = {"6", "QUIT"};
 
     init_store(&store);
 
@@ -288,6 +344,12 @@ int main()
         if (is_command(command, LIST_ARGS))
         {
             list_all(&store);
+            continue;
+        }
+
+        if (is_command(command, STATS_ARGS))
+        {
+            print_stats(&store);
             continue;
         }
 
