@@ -9,6 +9,9 @@
 #define MAX_VALUE_LEN 200
 
 #define MAX_ENTRIES 100
+#define STATE_EMPTY 0
+#define STATE_FILLED 1
+#define STATE_DELETED 2
 
 // Data structures
 typedef struct
@@ -16,7 +19,7 @@ typedef struct
     // + 1 for string null terminator \0
     char key[MAX_KEY_LEN + 1];
     char value[MAX_VALUE_LEN + 1];
-    int isFilled;
+    int state;
 } KeyValuePair;
 
 typedef struct
@@ -32,6 +35,7 @@ char *get(KeyValueStore *store, char *key);
 int delete(KeyValueStore *store, char *key);
 void list_all(KeyValueStore *store);
 void print_menu();
+unsigned int hash(const char *key);
 
 // Initialize the store (set all slots to empty, count to 0)
 void init_store(KeyValueStore *store)
@@ -40,137 +44,107 @@ void init_store(KeyValueStore *store)
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
-        store->entries[i].isFilled = 0;
+        store->entries[i].state = STATE_EMPTY;
     }
 }
 
 // Insert or update a key-value pair
-// Returns: 0 on success, 1 on failure (store full, key too long, etc.)
 int put(KeyValueStore *store, const char *key, const char *value)
 {
 
     if (strnlen(key, MAX_KEY_LEN) > MAX_KEY_LEN)
     {
         printf("The length of key '%s' exceedes the max value of %d chars\n", key, MAX_KEY_LEN);
-        return 1;
+        return 0;
     }
 
     if (strnlen(value, MAX_KEY_LEN) > MAX_VALUE_LEN)
     {
         printf("The length of value '%s' exceedes the max value of %d chars\n", key, MAX_VALUE_LEN);
-        return 1;
+        return 0;
     }
 
-    int foundResult = 0;
-    int firstEmptyEntryIndex = -1;
+    unsigned int keyIndex = hash(key);
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
-        KeyValuePair *currEntry = &store->entries[i];
+        int currentIndex = (keyIndex + i) % MAX_ENTRIES;
 
-        if (firstEmptyEntryIndex < 0 && !currEntry->isFilled)
+        KeyValuePair *currEntry = &store->entries[currentIndex];
+
+        if (currEntry->state != STATE_FILLED)
         {
-            firstEmptyEntryIndex = i;
-        }
-
-        if (!currEntry->isFilled)
-        {
-            continue;
-        }
-
-        int hasFoundKey = strncmp(key, currEntry->key, MAX_KEY_LEN) == 0;
-
-        if (!hasFoundKey)
-        {
-            continue;
-        }
-
-        foundResult = 1;
-        strncpy_s(currEntry->value, sizeof(currEntry->value), value, MAX_VALUE_LEN);
-        break;
-    }
-
-    if (!foundResult)
-    {
-        if (firstEmptyEntryIndex < 0)
-        {
-            printf("Store is full");
+            strncpy_s(currEntry->key, sizeof(currEntry->key), key, sizeof(key));
+            strncpy_s(currEntry->value, sizeof(currEntry->value), value, sizeof(value));
+            currEntry->state = STATE_FILLED;
+            ++store->count;
             return 1;
         }
 
-        KeyValuePair *newEntry = &store->entries[firstEmptyEntryIndex];
-
-        strncpy_s(newEntry->key, sizeof(newEntry->key), key, MAX_KEY_LEN);
-        strncpy_s(newEntry->value, sizeof(newEntry->value), value, MAX_VALUE_LEN);
-        newEntry->isFilled = 1;
-        ++store->count;
-        foundResult = 1;
+        if (currEntry->state == STATE_FILLED && strncmp(key, currEntry->key, MAX_KEY_LEN) == 0)
+        {
+            strncpy_s(currEntry->value, sizeof(currEntry->value), value, sizeof(value));
+            return 1;
+        }
     }
 
-    return foundResult ? 0 : 1;
+    printf("Store is full\n");
+    return 0;
 }
 
 // Retrieve value for a given key
-// Returns: pointer to value string if found, NULL if not found
 char *get(KeyValueStore *store, char *key)
 {
-    char *foundValue = NULL;
+    unsigned int keyIndex = hash(key);
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
-        KeyValuePair *currEntry = &store->entries[i];
+        int currentIndex = (keyIndex + i) % MAX_ENTRIES;
 
-        if (!currEntry->isFilled)
+        KeyValuePair *currEntry = &store->entries[currentIndex];
+
+        if (currEntry->state == STATE_EMPTY)
         {
-            continue;
+            return NULL;
         }
 
-        int hasFoundKey = strncmp(key, currEntry->key, MAX_KEY_LEN) == 0;
-
-        if (!hasFoundKey)
+        if (currEntry->state == STATE_FILLED && strncmp(key, currEntry->key, sizeof(currEntry->key)) == 0)
         {
-            continue;
+            return currEntry->value;
         }
-
-        foundValue = currEntry->value;
-        break;
     }
 
-    return foundValue;
+    return NULL;
 }
 
 // Delete a key-value pair
-// Returns: 0 if deleted, 1 if key not found
 int delete(KeyValueStore *store, char *key)
 {
-    int foundKey = 0;
+    unsigned int keyIndex = hash(key);
 
     for (int i = 0; i < MAX_ENTRIES; ++i)
     {
-        KeyValuePair *currEntry = &store->entries[i];
+        int currentIndex = (keyIndex + i) % MAX_ENTRIES;
 
-        if (!currEntry->isFilled)
+        KeyValuePair *currEntry = &store->entries[currentIndex];
+
+        if (currEntry->state == STATE_EMPTY)
         {
-            continue;
+            return 0;
         }
 
-        int hasFoundKey = strncmp(key, currEntry->key, MAX_KEY_LEN) == 0;
-
-        if (!hasFoundKey)
+        if (strncmp(key, currEntry->key, sizeof(currEntry->key)) == 0)
         {
-            continue;
+            currEntry->state = STATE_DELETED;
+            --store->count;
+            return 1;
         }
-
-        foundKey = 1;
-        currEntry->isFilled = 0;
-        --store->count;
-        break;
     }
 
-    return foundKey ? 0 : 1;
+    return 0;
 }
 
-// List all key-value pairs
+// Print all key-value pairs
 void list_all(KeyValueStore *store)
 {
     printf("Stored pairs:\n");
@@ -179,7 +153,7 @@ void list_all(KeyValueStore *store)
     {
         KeyValuePair *currEntry = &store->entries[i];
 
-        if (!currEntry->isFilled)
+        if (currEntry->state != STATE_FILLED)
         {
             continue;
         }
@@ -189,7 +163,6 @@ void list_all(KeyValueStore *store)
     printf("Count: %d\n", store->count);
 }
 
-// Print the command menu
 void print_menu()
 {
     printf("\n");
@@ -203,6 +176,19 @@ void print_menu()
 int is_command(const char *command, const char values[2][MAX_CMD_LEN + 1])
 {
     return stricmp(command, values[0]) == 0 || stricmp(command, values[1]) == 0;
+}
+
+unsigned int hash(const char *key)
+{
+    // unsigned means no negative int
+    unsigned int hashValue = 0;
+
+    for (int i = 0; key[i] != '\0'; ++i)
+    {
+        hashValue += key[i];
+    }
+
+    return hashValue % MAX_ENTRIES;
 }
 
 int main()
@@ -266,11 +252,10 @@ int main()
                 continue;
             }
 
-            int res = put(&store, key, value);
+            int success = put(&store, key, value);
 
-            if (res == 1)
+            if (!success)
             {
-                printf("Error while saving\n");
                 continue;
             }
 
@@ -288,9 +273,9 @@ int main()
                 continue;
             }
 
-            int res = delete(&store, key);
+            int success = delete(&store, key);
 
-            if (res == 1)
+            if (!success)
             {
                 printf("Key not found\n");
                 continue;
