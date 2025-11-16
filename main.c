@@ -1,14 +1,16 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
 // Constants
 #define MAX_INPUT_LEN 255
-#define MAX_CMD_LEN 24
-#define MAX_KEY_LEN 50
-#define MAX_VALUE_LEN 200
+#define MAX_CMD_LEN 12
+#define MAX_KEY_LEN 24
+#define MAX_VALUE_LEN 255
 
-#define MAX_ENTRIES 20
+#define MAX_ENTRIES 5
+#define MAX_USAGE 70
 #define STATE_EMPTY 0
 #define STATE_FILLED 1
 #define STATE_DELETED 2
@@ -24,7 +26,8 @@ typedef struct
 
 typedef struct
 {
-    KeyValuePair entries[MAX_ENTRIES];
+    KeyValuePair *entries;
+    int capacity;
     int count;
     int totalCollisions; // Total times we had to probe
     int totalOperations; // Total get/put/delete operations
@@ -32,34 +35,119 @@ typedef struct
 } KeyValueStore;
 
 // Function prototypes
-void init_store(KeyValueStore *store);
+int init_store(KeyValueStore *store, int initialCapacity);
+int resize_store(KeyValueStore *store);
 int put(KeyValueStore *store, const char *key, const char *value);
 char *get(KeyValueStore *store, char *key);
 int delete(KeyValueStore *store, char *key);
 void list_all(KeyValueStore *store);
 void print_menu();
-unsigned int hash(const char *key);
+unsigned int hash_DJB2(const char *key, int maxEntries);
 void update_max_probe_length(KeyValueStore *store, int index);
 void print_stats(KeyValueStore *store);
 
 // Initialize the store (set all slots to empty, count to 0)
-void init_store(KeyValueStore *store)
+int init_store(KeyValueStore *store, int initialCapacity)
 {
+    KeyValuePair *pEntries = malloc(initialCapacity * sizeof(KeyValuePair));
+
+    if (pEntries == NULL)
+    {
+        printf("Failed store entries memory allocation");
+        return 0;
+    }
+
+    store->entries = pEntries;
+    store->capacity = initialCapacity;
     store->count = 0;
     store->totalCollisions = 0;
     store->totalOperations = 0;
     store->maxProbeLength = 0;
 
-    for (int i = 0; i < MAX_ENTRIES; ++i)
+    for (int i = 0; i < initialCapacity; ++i)
     {
         store->entries[i].state = STATE_EMPTY;
     }
+
+    return 1;
+}
+
+// Resize the store (recalculate slots hash)
+int resize_store(KeyValueStore *store)
+{
+    int oldCapacity = store->capacity;
+    int newCapacity = oldCapacity * 2;
+
+    printf("Resizing store capacity to: %d\n", newCapacity);
+
+    KeyValuePair *pOldEntries = store->entries;
+    KeyValuePair *pNewEntries = calloc(newCapacity, sizeof(KeyValuePair));
+
+    if (pNewEntries == NULL)
+    {
+        printf("Failed store entries memory expansion allocation");
+        return 0;
+    }
+
+    store->entries = pNewEntries;
+    store->capacity = newCapacity;
+    store->count = 0;
+
+    for (int i = 0; i < newCapacity; ++i)
+    {
+        store->entries[i].state = STATE_EMPTY;
+    }
+
+    for (int i = 0; i < oldCapacity; ++i)
+    {
+        KeyValuePair *pCurrentOldEntry = &pOldEntries[i];
+
+        if (pCurrentOldEntry->state != STATE_FILLED)
+        {
+            continue;
+        }
+
+        unsigned newKeyIndex = hash_DJB2(pCurrentOldEntry->key, newCapacity);
+
+        for (int j = 0; j < newCapacity; ++j)
+        {
+            unsigned currentIndex = (newKeyIndex + j) % newCapacity;
+
+            KeyValuePair *currEntry = &store->entries[currentIndex];
+
+            if (currEntry->state != STATE_FILLED)
+            {
+                strncpy_s(currEntry->key, sizeof(currEntry->key), pCurrentOldEntry->key, sizeof(pCurrentOldEntry->key));
+                strncpy_s(currEntry->value, sizeof(currEntry->value), pCurrentOldEntry->value, sizeof(pCurrentOldEntry->value));
+                currEntry->state = STATE_FILLED;
+                ++store->count;
+                break;
+            }
+        }
+    }
+
+    free(pOldEntries);
+    pOldEntries = NULL;
+
+    return 1;
 }
 
 // Insert or update a key-value pair
 int put(KeyValueStore *store, const char *key, const char *value)
 {
     ++store->totalOperations;
+
+    float newUsage = ((float)store->count + 1) / (float)store->capacity * 100;
+
+    if (newUsage > MAX_USAGE)
+    {
+        int success = resize_store(store);
+
+        if (!success)
+        {
+            return 0;
+        }
+    }
 
     if (strnlen(key, MAX_KEY_LEN) > MAX_KEY_LEN)
     {
@@ -73,13 +161,13 @@ int put(KeyValueStore *store, const char *key, const char *value)
         return 0;
     }
 
-    unsigned int keyIndex = hash(key);
+    unsigned int keyIndex = hash_DJB2(key, store->capacity);
 
-    for (int i = 0; i < MAX_ENTRIES; ++i)
+    for (int i = 0; i < store->capacity; ++i)
     {
         update_max_probe_length(store, i);
 
-        unsigned currentIndex = (keyIndex + i) % MAX_ENTRIES;
+        unsigned currentIndex = (keyIndex + i) % store->capacity;
 
         KeyValuePair *currEntry = &store->entries[currentIndex];
 
@@ -108,13 +196,13 @@ char *get(KeyValueStore *store, char *key)
 {
     ++store->totalOperations;
 
-    unsigned int keyIndex = hash(key);
+    unsigned int keyIndex = hash_DJB2(key, store->capacity);
 
-    for (int i = 0; i < MAX_ENTRIES; ++i)
+    for (int i = 0; i < store->capacity; ++i)
     {
         update_max_probe_length(store, i);
 
-        unsigned int currentIndex = (keyIndex + i) % MAX_ENTRIES;
+        unsigned int currentIndex = (keyIndex + i) % store->capacity;
 
         KeyValuePair *currEntry = &store->entries[currentIndex];
 
@@ -137,13 +225,13 @@ int delete(KeyValueStore *store, char *key)
 {
     ++store->totalOperations;
 
-    unsigned int keyIndex = hash(key);
+    unsigned int keyIndex = hash_DJB2(key, store->capacity);
 
-    for (int i = 0; i < MAX_ENTRIES; ++i)
+    for (int i = 0; i < store->capacity; ++i)
     {
         update_max_probe_length(store, i);
 
-        unsigned int currentIndex = (keyIndex + i) % MAX_ENTRIES;
+        unsigned int currentIndex = (keyIndex + i) % store->capacity;
 
         KeyValuePair *currEntry = &store->entries[currentIndex];
 
@@ -168,7 +256,7 @@ void list_all(KeyValueStore *store)
 {
     printf("Stored pairs:\n");
 
-    for (int i = 0; i < MAX_ENTRIES; ++i)
+    for (int i = 0; i < store->capacity; ++i)
     {
         KeyValuePair *currEntry = &store->entries[i];
 
@@ -198,17 +286,18 @@ int is_command(const char *command, const char values[2][MAX_CMD_LEN + 1])
     return stricmp(command, values[0]) == 0 || stricmp(command, values[1]) == 0;
 }
 
-unsigned int hash(const char *key)
+unsigned int hash_DJB2(const char *key, int maxEntries)
 {
     // unsigned means no negative int
-    unsigned int hashValue = 0;
+    unsigned int hashValue = 5381;
 
     for (int i = 0; key[i] != '\0'; ++i)
     {
-        hashValue += key[i];
+        // bit shift: << 5 === * 2^5 (32)
+        hashValue = (hashValue << 5) + hashValue + key[i];
     }
 
-    return hashValue % MAX_ENTRIES;
+    return hashValue % maxEntries;
 }
 
 void update_max_probe_length(KeyValueStore *store, int index)
@@ -236,7 +325,7 @@ void print_stats(KeyValueStore *store)
         return;
     }
 
-    float usage = (float)store->count / MAX_ENTRIES * 100;
+    float usage = (float)store->count / (float)store->capacity * 100;
     float avarageProbs = (float)store->totalCollisions / (float)store->totalOperations;
 
     printf("Usage: %.0f%%\n", usage);
@@ -261,7 +350,12 @@ int main()
     const char STATS_ARGS[2][MAX_CMD_LEN + 1] = {"5", "STATS"};
     const char QUIT_ARGS[2][MAX_CMD_LEN + 1] = {"6", "QUIT"};
 
-    init_store(&store);
+    int success = init_store(&store, MAX_ENTRIES);
+
+    if (!success)
+    {
+        return 1;
+    }
 
     printf("Welcome to the Key-Value Store!\n");
 
@@ -361,6 +455,9 @@ int main()
 
         printf("Invalid action\n");
     }
+
+    free(store.entries);
+    store.entries = NULL;
 
     return 0;
 }
