@@ -1,0 +1,11 @@
+{
+  "C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
+    "readability-magic-numbers",
+    "modernize-macro-to-enum",
+    "readability-function-cognitive-complexity"
+  ],
+  "files.associations": {
+    "*.css": "tailwindcss",
+    "stdlib.h": "c"
+  }
+}
