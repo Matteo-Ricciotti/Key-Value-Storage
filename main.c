@@ -8,6 +8,7 @@
 #define MAX_KEY_LEN 24
 #define MAX_VALUE_LEN 255
 
+#define STORE_FILENAME "store.db"
 #define MAX_ENTRIES 5
 #define MAX_USAGE 70
 #define STATE_EMPTY 0
@@ -44,6 +45,8 @@ void print_menu();
 unsigned int hash_DJB2(const char *key, int maxEntries);
 void update_max_probe_length(KeyValueStore *store, int index);
 void print_stats(KeyValueStore *store);
+int save_store(KeyValueStore *store, const char *filename);
+int load_store(KeyValueStore *store, const char *filename);
 
 // Initialize the store (set all slots to empty, count to 0)
 int init_store(KeyValueStore *store, int initialCapacity)
@@ -253,7 +256,7 @@ int delete(KeyValueStore *store, char *key)
 // Print all key-value pairs
 void list_all(KeyValueStore *store)
 {
-    printf("Stored pairs:\n");
+    printf("Stored pairs:\n\n");
 
     for (int i = 0; i < store->capacity; ++i)
     {
@@ -263,10 +266,10 @@ void list_all(KeyValueStore *store)
         {
             continue;
         }
-        printf("Key: %s Value: %s\n", currEntry->key, currEntry->value);
+        printf("%s:%s\n", currEntry->key, currEntry->value);
     }
 
-    printf("Count: %d\n", store->count);
+    printf("\nCount: %d\n", store->count);
 }
 
 void print_menu()
@@ -334,6 +337,58 @@ void print_stats(KeyValueStore *store)
     printf("Max Probe Length: %d\n", store->maxProbeLength);
 }
 
+int save_store(KeyValueStore *store, const char *filename)
+{
+    FILE *file = fopen(filename, "w");
+
+    if (NULL == file)
+    {
+        printf("Failed to open file for saving\n");
+        return 0;
+    }
+
+    for (int i = 0; i < store->capacity; ++i)
+    {
+        KeyValuePair *pCurrEntry = &store->entries[i];
+
+        if (STATE_FILLED != pCurrEntry->state)
+        {
+            continue;
+        }
+
+        fprintf_s(file, "%s:%s\n", pCurrEntry->key, pCurrEntry->value);
+    }
+
+    fclose(file);
+
+    return 1;
+}
+
+int load_store(KeyValueStore *store, const char *filename)
+{
+    FILE *file = fopen(filename, "r");
+
+    if (NULL == file)
+    {
+        return 0;
+    }
+
+    char line[MAX_KEY_LEN + MAX_VALUE_LEN + 2]; // Key + ':' + Value + '\n'
+    char key[MAX_KEY_LEN + 1];
+    char value[MAX_VALUE_LEN + 1];
+
+    while (fgets(line, sizeof(line), file))
+    {
+        // Read until ':' for key, rest for value
+        sscanf_s(line, "%[^:]:%s", key, sizeof(key), value, sizeof(value));
+        put(store, key, value);
+    };
+
+    fclose(file);
+
+    return 1;
+}
+
 int main()
 {
     KeyValueStore store;
@@ -356,7 +411,9 @@ int main()
         return 1;
     }
 
-    printf("Welcome to the Key-Value Store!\n");
+    load_store(&store, STORE_FILENAME);
+
+    printf("\nWelcome to the Key-Value Store!\n");
 
     // Main command loop
     while (1)
@@ -448,12 +505,14 @@ int main()
 
         if (is_command(command, QUIT_ARGS))
         {
-            printf("Goodbye!\n");
+            printf("\nGoodbye!\n");
             break;
         }
 
         printf("Invalid action\n");
     }
+
+    save_store(&store, STORE_FILENAME);
 
     free(store.entries);
     store.entries = NULL;

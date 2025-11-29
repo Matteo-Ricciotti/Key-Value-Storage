@@ -5,7 +5,6 @@
     "readability-function-cognitive-complexity"
   ],
   "files.associations": {
-    "*.css": "tailwindcss",
     "stdlib.h": "c"
   }
 }
