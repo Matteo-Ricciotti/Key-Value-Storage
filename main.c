@@ -8,12 +8,20 @@
 #define MAX_KEY_LEN 24
 #define MAX_VALUE_LEN 255
 
-#define STORE_FILENAME "store.db"
+#define STORE_LOCAL_PATH "data/store.db"
+#define EVENTS_LOCAL_PATH "data/events.log"
 #define MAX_ENTRIES 5
 #define MAX_USAGE 70
 #define STATE_EMPTY 0
 #define STATE_FILLED 1
 #define STATE_DELETED 2
+
+const char GET_ARGS[2][MAX_CMD_LEN + 1] = {"1", "GET"};
+const char PUT_ARGS[2][MAX_CMD_LEN + 1] = {"2", "PUT"};
+const char DEL_ARGS[2][MAX_CMD_LEN + 1] = {"3", "DELETE"};
+const char LIST_ARGS[2][MAX_CMD_LEN + 1] = {"4", "LIST"};
+const char STATS_ARGS[2][MAX_CMD_LEN + 1] = {"5", "STATS"};
+const char QUIT_ARGS[2][MAX_CMD_LEN + 1] = {"6", "QUIT"};
 
 // Data structures
 typedef struct
@@ -37,16 +45,17 @@ typedef struct
 // Function prototypes
 int init_store(KeyValueStore *store, int initialCapacity);
 int resize_store(KeyValueStore *store);
-int put(KeyValueStore *store, const char *key, const char *value);
+int put(KeyValueStore *store, const char *key, const char *value, int should_append);
 char *get(KeyValueStore *store, char *key);
-int delete(KeyValueStore *store, char *key);
+int delete(KeyValueStore *store, char *key, int should_append);
 void list_all(KeyValueStore *store);
 void print_menu();
 unsigned int hash_DJB2(const char *key, int maxEntries);
 void update_max_probe_length(KeyValueStore *store, int index);
 void print_stats(KeyValueStore *store);
-int save_store(KeyValueStore *store, const char *filename);
-int load_store(KeyValueStore *store, const char *filename);
+int save_store(KeyValueStore *store);
+int load_store(KeyValueStore *store);
+int append_event(const char *event, const char *key, const char *value, int should_append);
 
 // Initialize the store (set all slots to empty, count to 0)
 int init_store(KeyValueStore *store, int initialCapacity)
@@ -135,7 +144,7 @@ int resize_store(KeyValueStore *store)
 }
 
 // Insert or update a key-value pair
-int put(KeyValueStore *store, const char *key, const char *value)
+int put(KeyValueStore *store, const char *key, const char *value, int should_append)
 {
     ++store->totalOperations;
 
@@ -175,6 +184,8 @@ int put(KeyValueStore *store, const char *key, const char *value)
 
         if (currEntry->state != STATE_FILLED)
         {
+            append_event(PUT_ARGS[0], key, value, should_append);
+
             strncpy_s(currEntry->key, sizeof(currEntry->key), key, sizeof(key));
             strncpy_s(currEntry->value, sizeof(currEntry->value), value, sizeof(value));
             currEntry->state = STATE_FILLED;
@@ -182,8 +193,10 @@ int put(KeyValueStore *store, const char *key, const char *value)
             return 1;
         }
 
-        if (currEntry->state == STATE_FILLED && strncmp(key, currEntry->key, MAX_KEY_LEN) == 0)
+        if (currEntry->state == STATE_FILLED && 0 == strncmp(key, currEntry->key, MAX_KEY_LEN))
         {
+            append_event(PUT_ARGS[0], key, value, should_append);
+
             strncpy_s(currEntry->value, sizeof(currEntry->value), value, sizeof(value));
             return 1;
         }
@@ -213,7 +226,7 @@ char *get(KeyValueStore *store, char *key)
             return NULL;
         }
 
-        if (currEntry->state == STATE_FILLED && strncmp(key, currEntry->key, sizeof(currEntry->key)) == 0)
+        if (currEntry->state == STATE_FILLED && 0 == strncmp(key, currEntry->key, MAX_KEY_LEN))
         {
             return currEntry->value;
         }
@@ -223,7 +236,7 @@ char *get(KeyValueStore *store, char *key)
 }
 
 // Delete a key-value pair
-int delete(KeyValueStore *store, char *key)
+int delete(KeyValueStore *store, char *key, int should_append)
 {
     ++store->totalOperations;
 
@@ -242,8 +255,10 @@ int delete(KeyValueStore *store, char *key)
             return 0;
         }
 
-        if (strncmp(key, currEntry->key, sizeof(currEntry->key)) == 0)
+        if (0 == strncmp(key, currEntry->key, MAX_KEY_LEN))
         {
+            append_event(DEL_ARGS[0], key, NULL, should_append);
+
             currEntry->state = STATE_DELETED;
             --store->count;
             return 1;
@@ -337,9 +352,9 @@ void print_stats(KeyValueStore *store)
     printf("Max Probe Length: %d\n", store->maxProbeLength);
 }
 
-int save_store(KeyValueStore *store, const char *filename)
+int save_store(KeyValueStore *store)
 {
-    FILE *file = fopen(filename, "w");
+    FILE *file = fopen(STORE_LOCAL_PATH, "w");
 
     if (NULL == file)
     {
@@ -364,9 +379,9 @@ int save_store(KeyValueStore *store, const char *filename)
     return 1;
 }
 
-int load_store(KeyValueStore *store, const char *filename)
+int load_store(KeyValueStore *store)
 {
-    FILE *file = fopen(filename, "r");
+    FILE *file = fopen(STORE_LOCAL_PATH, "r");
 
     if (NULL == file)
     {
@@ -381,8 +396,39 @@ int load_store(KeyValueStore *store, const char *filename)
     {
         // Read until ':' for key, rest for value
         sscanf_s(line, "%[^:]:%s", key, sizeof(key), value, sizeof(value));
-        put(store, key, value);
+        put(store, key, value, 0);
     };
+
+    fclose(file);
+
+    return 1;
+}
+
+int append_event(const char *event, const char *key, const char *value, int should_append)
+{
+    if (!should_append)
+    {
+        return 1;
+    }
+
+    FILE *file = fopen(EVENTS_LOCAL_PATH, "a");
+
+    if (NULL == file)
+    {
+        return 0;
+    }
+
+    if (0 == strncmp(PUT_ARGS[0], event, MAX_CMD_LEN))
+    {
+        fprintf_s(file, "%s:%s:%s\n", event, key, value);
+    }
+
+    if (0 == strncmp(DEL_ARGS[0], event, MAX_CMD_LEN))
+    {
+        fprintf_s(file, "%s:%s\n", event, key);
+    }
+
+    fflush(file);
 
     fclose(file);
 
@@ -397,13 +443,6 @@ int main()
     char key[MAX_KEY_LEN + 1];
     char value[MAX_VALUE_LEN + 1];
 
-    const char GET_ARGS[2][MAX_CMD_LEN + 1] = {"1", "GET"};
-    const char PUT_ARGS[2][MAX_CMD_LEN + 1] = {"2", "PUT"};
-    const char DEL_ARGS[2][MAX_CMD_LEN + 1] = {"3", "DELETE"};
-    const char LIST_ARGS[2][MAX_CMD_LEN + 1] = {"4", "LIST"};
-    const char STATS_ARGS[2][MAX_CMD_LEN + 1] = {"5", "STATS"};
-    const char QUIT_ARGS[2][MAX_CMD_LEN + 1] = {"6", "QUIT"};
-
     int success = init_store(&store, MAX_ENTRIES);
 
     if (!success)
@@ -411,7 +450,7 @@ int main()
         return 1;
     }
 
-    load_store(&store, STORE_FILENAME);
+    load_store(&store);
 
     printf("\nWelcome to the Key-Value Store!\n");
 
@@ -458,7 +497,7 @@ int main()
                 continue;
             }
 
-            int success = put(&store, key, value);
+            int success = put(&store, key, value, 1);
 
             if (!success)
             {
@@ -479,7 +518,7 @@ int main()
                 continue;
             }
 
-            int success = delete(&store, key);
+            int success = delete(&store, key, 1);
 
             if (!success)
             {
@@ -512,7 +551,7 @@ int main()
         printf("Invalid action\n");
     }
 
-    save_store(&store, STORE_FILENAME);
+    save_store(&store);
 
     free(store.entries);
     store.entries = NULL;
