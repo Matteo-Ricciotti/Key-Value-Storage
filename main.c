@@ -56,6 +56,7 @@ void print_stats(KeyValueStore *store);
 int save_store(KeyValueStore *store);
 int load_store(KeyValueStore *store);
 int append_event(const char *event, const char *key, const char *value, int should_append);
+int replay_events(KeyValueStore *store);
 
 // Initialize the store (set all slots to empty, count to 0)
 int init_store(KeyValueStore *store, int initialCapacity)
@@ -435,6 +436,48 @@ int append_event(const char *event, const char *key, const char *value, int shou
     return 1;
 }
 
+int replay_events(KeyValueStore *store)
+{
+    FILE *file = fopen(EVENTS_LOCAL_PATH, "r");
+
+    if (NULL == file)
+    {
+        return 1;
+    }
+
+    char line[MAX_CMD_LEN + MAX_KEY_LEN + MAX_VALUE_LEN + 3]; // Cmd + ':' + Key + ':' + Value + '\n'
+    char event[MAX_CMD_LEN + 1];
+    char key[MAX_KEY_LEN + 1];
+    char value[MAX_VALUE_LEN + 1];
+
+    while (fgets(line, sizeof(line), file))
+    {
+        // Read until ':' for event and key, rest for value
+        sscanf_s(line, "%[^:]:%[^:]:%s", event, sizeof(event), key, sizeof(key), value, sizeof(value));
+
+        // Remove newline character
+        // strcspn return the number of chars before the 1st occurrence of "\r\n"
+        key[strcspn(key, "\r\n")] = '\0';
+        value[strcspn(value, "\r\n")] = '\0';
+
+        if (0 == strncmp(PUT_ARGS[0], event, MAX_CMD_LEN))
+        {
+            put(store, key, value, 0);
+            continue;
+        }
+
+        if (0 == strncmp(DEL_ARGS[0], event, MAX_CMD_LEN))
+        {
+            delete(store, key, 0);
+            continue;
+        }
+    };
+
+    fclose(file);
+
+    return 1;
+}
+
 int main()
 {
     KeyValueStore store;
@@ -451,6 +494,7 @@ int main()
     }
 
     load_store(&store);
+    replay_events(&store);
 
     printf("\nWelcome to the Key-Value Store!\n");
 
@@ -552,6 +596,7 @@ int main()
     }
 
     save_store(&store);
+    remove(EVENTS_LOCAL_PATH);
 
     free(store.entries);
     store.entries = NULL;
