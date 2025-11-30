@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
 
 // Constants
 #define MAX_INPUT_LEN 255
@@ -8,8 +10,8 @@
 #define MAX_KEY_LEN 24
 #define MAX_VALUE_LEN 255
 
-#define STORE_LOCAL_PATH "data/store.db"
-#define EVENTS_LOCAL_PATH "data/events.log"
+#define STORE_LOCAL_PATH "store.db"
+#define EVENTS_LOCAL_PATH "events.log"
 #define MAX_ENTRIES 5
 #define MAX_USAGE 70
 #define STATE_EMPTY 0
@@ -129,8 +131,8 @@ int resize_store(KeyValueStore *store)
 
             if (currEntry->state != STATE_FILLED)
             {
-                strncpy_s(currEntry->key, sizeof(currEntry->key), pCurrentOldEntry->key, sizeof(pCurrentOldEntry->key));
-                strncpy_s(currEntry->value, sizeof(currEntry->value), pCurrentOldEntry->value, sizeof(pCurrentOldEntry->value));
+                snprintf(currEntry->key, sizeof(currEntry->key), "%s", pCurrentOldEntry->key);
+                snprintf(currEntry->value, sizeof(currEntry->value), "%s", pCurrentOldEntry->value);
                 currEntry->state = STATE_FILLED;
                 ++store->count;
                 break;
@@ -161,13 +163,13 @@ int put(KeyValueStore *store, const char *key, const char *value, int should_app
         }
     }
 
-    if (strnlen(key, MAX_KEY_LEN) > MAX_KEY_LEN)
+    if (strlen(key) > MAX_KEY_LEN)
     {
         printf("The length of key '%s' exceedes the max value of %d chars\n", key, MAX_KEY_LEN);
         return 0;
     }
 
-    if (strnlen(value, MAX_KEY_LEN) > MAX_VALUE_LEN)
+    if (strlen(value) > MAX_VALUE_LEN)
     {
         printf("The length of value '%s' exceedes the max value of %d chars\n", key, MAX_VALUE_LEN);
         return 0;
@@ -187,8 +189,8 @@ int put(KeyValueStore *store, const char *key, const char *value, int should_app
         {
             append_event(PUT_ARGS[0], key, value, should_append);
 
-            strncpy_s(currEntry->key, sizeof(currEntry->key), key, sizeof(key));
-            strncpy_s(currEntry->value, sizeof(currEntry->value), value, sizeof(value));
+            snprintf(currEntry->key, sizeof(currEntry->key), "%s", key);
+            snprintf(currEntry->value, sizeof(currEntry->value), "%s", value);
             currEntry->state = STATE_FILLED;
             ++store->count;
             return 1;
@@ -198,7 +200,7 @@ int put(KeyValueStore *store, const char *key, const char *value, int should_app
         {
             append_event(PUT_ARGS[0], key, value, should_append);
 
-            strncpy_s(currEntry->value, sizeof(currEntry->value), value, sizeof(value));
+            snprintf(currEntry->value, sizeof(currEntry->value), "%s", value);
             return 1;
         }
     }
@@ -301,7 +303,7 @@ void print_menu()
 
 int is_command(const char *command, const char values[2][MAX_CMD_LEN + 1])
 {
-    return stricmp(command, values[0]) == 0 || stricmp(command, values[1]) == 0;
+    return strcasecmp(command, values[0]) == 0 || strcasecmp(command, values[1]) == 0;
 }
 
 unsigned int hash_DJB2(const char *key, int maxEntries)
@@ -372,7 +374,7 @@ int save_store(KeyValueStore *store)
             continue;
         }
 
-        fprintf_s(file, "%s:%s\n", pCurrEntry->key, pCurrEntry->value);
+        fprintf(file, "%s:%s\n", pCurrEntry->key, pCurrEntry->value);
     }
 
     fclose(file);
@@ -396,7 +398,7 @@ int load_store(KeyValueStore *store)
     while (fgets(line, sizeof(line), file))
     {
         // Read until ':' for key, rest for value
-        sscanf_s(line, "%[^:]:%s", key, sizeof(key), value, sizeof(value));
+        sscanf(line, "%[^:]:%s", key, value);
         put(store, key, value, 0);
     };
 
@@ -421,12 +423,12 @@ int append_event(const char *event, const char *key, const char *value, int shou
 
     if (0 == strncmp(PUT_ARGS[0], event, MAX_CMD_LEN))
     {
-        fprintf_s(file, "%s:%s:%s\n", event, key, value);
+        fprintf(file, "%s:%s:%s\n", event, key, value);
     }
 
     if (0 == strncmp(DEL_ARGS[0], event, MAX_CMD_LEN))
     {
-        fprintf_s(file, "%s:%s\n", event, key);
+        fprintf(file, "%s:%s\n", event, key);
     }
 
     fflush(file);
@@ -453,7 +455,7 @@ int replay_events(KeyValueStore *store)
     while (fgets(line, sizeof(line), file))
     {
         // Read until ':' for event and key, rest for value
-        sscanf_s(line, "%[^:]:%[^:]:%s", event, sizeof(event), key, sizeof(key), value, sizeof(value));
+        sscanf(line, "%[^:]:%[^:]:%s", event, key, value);
 
         // Remove newline character
         // strcspn return the number of chars before the 1st occurrence of "\r\n"
@@ -506,11 +508,11 @@ int main()
 
         fgets(input, sizeof(input), stdin);
 
-        sscanf_s(input, "%s", command, sizeof(command));
+        sscanf(input, "%s", command);
 
         if (is_command(command, GET_ARGS))
         {
-            int inputWords = sscanf_s(input, "%s %s", command, sizeof(command), key, sizeof(key));
+            int inputWords = sscanf(input, "%s %s", command, key);
 
             if (inputWords != 2)
             {
@@ -533,7 +535,7 @@ int main()
 
         if (is_command(command, PUT_ARGS))
         {
-            int inputWords = sscanf_s(input, "%s %s %s", command, sizeof(command), key, sizeof(key), value, sizeof(value));
+            int inputWords = sscanf(input, "%s %s %s", command, key, value);
 
             if (inputWords != 3)
             {
@@ -554,7 +556,7 @@ int main()
 
         if (is_command(command, DEL_ARGS))
         {
-            int inputWords = sscanf_s(input, "%s %s", command, sizeof(command), key, sizeof(key));
+            int inputWords = sscanf(input, "%s %s", command, key);
 
             if (inputWords != 2)
             {
