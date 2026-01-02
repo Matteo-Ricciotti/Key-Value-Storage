@@ -5,8 +5,8 @@
   ],
   "makefile.launchConfigurations": [
     {
-      "cwd": "/home/matteo/code/learning/learn_c/key_value_storage/build",
-      "binaryPath": "/home/matteo/code/learning/learn_c/key_value_storage/build/main",
+      "cwd": "/home/matteo/code/key_value_storage/build",
+      "binaryPath": "/home/matteo/code/key_value_storage/build/main",
       "binaryArgs": []
     }
   ]
