@@ -37,11 +37,11 @@ int main()
 
         fgets(input, sizeof(input), stdin);
 
-        sscanf(input, "%s", command);
+        sscanf(input, "%7s", command);
 
         if (is_command(command, GET_ARGS))
         {
-            int inputWords = sscanf(input, "%s %s", command, key);
+            int inputWords = sscanf(input, "%7s %127s", command, key);
 
             if (inputWords != 2)
             {
@@ -64,7 +64,7 @@ int main()
 
         if (is_command(command, PUT_ARGS))
         {
-            int inputWords = sscanf(input, "%s %s %s", command, key, value);
+            int inputWords = sscanf(input, "%7s %127s %255s", command, key, value);
 
             if (inputWords != 3)
             {
@@ -85,7 +85,7 @@ int main()
 
         if (is_command(command, DEL_ARGS))
         {
-            int inputWords = sscanf(input, "%s %s", command, key);
+            int inputWords = sscanf(input, "%7s %127s", command, key);
 
             if (inputWords != 2)
             {
