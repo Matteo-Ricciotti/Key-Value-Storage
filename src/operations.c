@@ -61,6 +61,7 @@ int put(KeyValueStore *store, const char *key, const char *value, int should_app
     }
 
     unsigned int keyIndex = hash_DJB2(key, store->capacity);
+    int firstDeletedIndex = -1;
 
     for (int i = 0; i < store->capacity; ++i)
     {
@@ -70,8 +71,22 @@ int put(KeyValueStore *store, const char *key, const char *value, int should_app
 
         KeyValuePair *currEntry = &store->entries[currentIndex];
 
-        if (currEntry->state != STATE_FILLED)
+        if (STATE_FILLED == currEntry->state && 0 == strncmp(key, currEntry->key, sizeof(currEntry->key)))
         {
+            append_event(PUT_ARGS.id, key, value, should_append);
+
+            snprintf(currEntry->value, sizeof(currEntry->value), "%s", value);
+            return 0;
+        }
+
+        if (STATE_EMPTY == currEntry->state)
+        {
+            if (-1 != firstDeletedIndex)
+            {
+                currentIndex = firstDeletedIndex;
+                currEntry = &store->entries[currentIndex];
+            }
+
             append_event(PUT_ARGS.id, key, value, should_append);
 
             snprintf(currEntry->key, sizeof(currEntry->key), "%s", key);
@@ -81,13 +96,22 @@ int put(KeyValueStore *store, const char *key, const char *value, int should_app
             return 0;
         }
 
-        if (currEntry->state == STATE_FILLED && 0 == strncmp(key, currEntry->key, sizeof(currEntry->key)))
+        if (STATE_DELETED == currEntry->state && -1 == firstDeletedIndex)
         {
-            append_event(PUT_ARGS.id, key, value, should_append);
-
-            snprintf(currEntry->value, sizeof(currEntry->value), "%s", value);
-            return 0;
+            firstDeletedIndex = currentIndex;
         }
+    }
+
+    if (-1 != firstDeletedIndex)
+    {
+        KeyValuePair *currEntry = &store->entries[firstDeletedIndex];
+
+        append_event(PUT_ARGS.id, key, value, should_append);
+        snprintf(currEntry->key, sizeof(currEntry->key), "%s", key);
+        snprintf(currEntry->value, sizeof(currEntry->value), "%s", value);
+        currEntry->state = STATE_FILLED;
+        ++store->count;
+        return 0;
     }
 
     printf("Store is full\n");
